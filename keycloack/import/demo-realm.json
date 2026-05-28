@@ -1,0 +1,46 @@
+{
+  "realm": "demo",
+  "enabled": true,
+  "displayName": "Auth Broker Demo",
+  "users": [
+    {
+      "username": "testuser",
+      "enabled": true,
+      "email": "testuser@acme.com",
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "test123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["user"]
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "user",
+        "description": "Regular user"
+      },
+      {
+        "name": "admin",
+        "description": "Administrator"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "auth-broker",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "broker-secret-123",
+      "redirectUris": ["*"],
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false
+    }
+  ]
+}
