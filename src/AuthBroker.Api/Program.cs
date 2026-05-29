@@ -40,6 +40,9 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
+// Healthcheck — outside tenant resolution; no X-Tenant-ID header required
+app.Map("/health", HealthEndpoints.MapHealthBranch);
+
 // Tenant resolution middleware — must run before auth endpoints
 app.UseMiddleware<TenantResolutionMiddleware>();
 
