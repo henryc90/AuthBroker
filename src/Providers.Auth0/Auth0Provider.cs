@@ -83,14 +83,14 @@ public class Auth0Provider : IAuthProvider
         }
     }
 
-    public async Task<IAuthResult<AuthResponse>> RegisterAsync(AuthRequest request)
+    public async Task<IAuthResult<RegisterResponse>> RegisterAsync(AuthRequest request)
     {
         try
         {
             var tenant = GetTenant(request.TenantId);
 
             if (string.IsNullOrEmpty(tenant.ClientId) || string.IsNullOrEmpty(tenant.ClientSecret))
-                return new AuthErrorResult<AuthResponse>(502, "Provider configuration incomplete: missing client credentials");
+                return new AuthErrorResult<RegisterResponse>(502, "Provider configuration incomplete: missing client credentials");
 
             var formData = new Dictionary<string, string>
             {
@@ -106,7 +106,7 @@ public class Auth0Provider : IAuthProvider
             var httpResponse = await client.PostAsync($"https://{tenant.Domain}/dbconnections/signup", content);
 
             if (httpResponse.StatusCode == HttpStatusCode.Unauthorized)
-                return new AuthErrorResult<AuthResponse>(401, "Invalid credentials");
+                return new AuthErrorResult<RegisterResponse>(401, "Invalid credentials");
 
             if (!httpResponse.IsSuccessStatusCode)
             {
@@ -117,9 +117,9 @@ public class Auth0Provider : IAuthProvider
             var auth0RegisterResponse = await httpResponse.Content.ReadFromJsonAsync<Auth0RegisterResponse>();
 
             if (auth0RegisterResponse is null)
-                return new AuthErrorResult<AuthResponse>(502, "Invalid response from provider");
+                return new AuthErrorResult<RegisterResponse>(502, "Invalid response from provider");
 
-            return new AuthSuccessResult<AuthResponse>(new AuthResponse
+            return new AuthSuccessResult<RegisterResponse>(new RegisterResponse
             {
                 Id = auth0RegisterResponse.Id,
                 Email = auth0RegisterResponse.Email
@@ -127,11 +127,11 @@ public class Auth0Provider : IAuthProvider
         }
         catch (HttpRequestException)
         {
-            return new AuthErrorResult<AuthResponse>(503, "Provider unavailable");
+            return new AuthErrorResult<RegisterResponse>(503, "Provider unavailable");
         }
         catch (Exception e)
         {
-            return new AuthErrorResult<AuthResponse>(503, e.Message);
+            return new AuthErrorResult<RegisterResponse>(503, e.Message);
         }
     }
 

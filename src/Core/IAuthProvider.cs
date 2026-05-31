@@ -25,7 +25,7 @@ public interface IAuthProvider
     /// <summary>
     /// Registers a new user with the given credentials.
     /// </summary>
-    Task<IAuthResult<AuthResponse>> RegisterAsync(AuthRequest request);
+    Task<IAuthResult<RegisterResponse>> RegisterAsync(AuthRequest request);
 
     /// <summary>
     /// Refreshes an expired access token using a refresh token.
