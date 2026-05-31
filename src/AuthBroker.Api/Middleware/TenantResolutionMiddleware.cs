@@ -1,22 +1,23 @@
 using System.Text.Json;
 using AuthBroker.Core;
+using Microsoft.Extensions.Options;
 
 namespace AuthBroker.Api.Middleware;
 
 /// <summary>
 /// Middleware that reads the <c>X-Tenant-ID</c> header from each request,
-/// resolves the corresponding <see cref="TenantConfig"/> from configuration,
+/// resolves the corresponding <see cref="Auth0TenantConfig"/> from the <c>Auth</c> configuration array,
 /// and stores it in <c>HttpContext.Items["TenantConfig"]</c> for downstream use.
 /// </summary>
 public class TenantResolutionMiddleware
 {
     private readonly RequestDelegate _next;
-    private readonly IConfiguration _configuration;
+    private readonly IOptionsMonitor<Auth0TenantConfig> _tenantConfigMonitor;
 
-    public TenantResolutionMiddleware(RequestDelegate next, IConfiguration configuration)
+    public TenantResolutionMiddleware(RequestDelegate next, IOptionsMonitor<Auth0TenantConfig> tenantConfigMonitor)
     {
         _next = next;
-        _configuration = configuration;
+        _tenantConfigMonitor = tenantConfigMonitor;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -34,12 +35,10 @@ public class TenantResolutionMiddleware
 
         var tenantId = tenantIdValues.FirstOrDefault()!;
 
-        // Resolve TenantConfig from IConfiguration — look up Tenants:{tenantId}
-        var tenantConfig = _configuration
-            .GetSection($"Tenants:{tenantId}")
-            .Get<TenantConfig>();
+        // Resolve Auth0TenantConfig from named options
+        var tenantConfig = _tenantConfigMonitor.Get(tenantId);
 
-        if (tenantConfig is null)
+        if (tenantConfig is null || string.IsNullOrEmpty(tenantConfig.TenantId))
         {
             context.Response.StatusCode = 404;
             context.Response.ContentType = "application/json";

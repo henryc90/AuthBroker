@@ -2,37 +2,33 @@ using AuthBroker.Api.Endpoints;
 using AuthBroker.Api.Middleware;
 using AuthBroker.Core;
 using AuthBroker.Providers.Auth0;
-using AuthBroker.Providers.Keycloak;
-using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Register ProviderRegistry as singleton
-var registry = new ProviderRegistry();
-builder.Services.AddSingleton<IProviderRegistry>(registry);
-
-// Register config + HttpClient for each provider
-builder.Services.AddKeycloakAuth(builder.Configuration);
-builder.Services.AddAuth0Auth(builder.Configuration);
-
-// Populate the registry with provider factories
-registry.Register(ProviderType.Keycloak, sp =>
-    new KeycloakProvider(
-        sp.GetRequiredService<IHttpClientFactory>(),
-        sp.GetRequiredService<IOptions<KeycloakConfig>>(),
-        sp.GetRequiredService<IOptionsMonitor<TenantConfig>>()));
-
-registry.Register(ProviderType.Auth0, sp =>
-    new Auth0Provider(
-        sp.GetRequiredService<IHttpClientFactory>(),
-        sp.GetRequiredService<IOptions<Auth0Config>>(),
-        sp.GetRequiredService<IOptionsMonitor<TenantConfig>>()));
-
-// Register each tenant as a named TenantConfig option so IOptionsMonitor<TenantConfig>.Get(tenantId) works
-foreach (var tenantSection in builder.Configuration.GetSection("Tenants").GetChildren())
+// Register Auth0 tenant configs from the "Auth" array as named options
+// so IOptionsMonitor<Auth0TenantConfig>.Get(tenantId) works
+var authTenants = builder.Configuration.GetSection("Auth").Get<List<Auth0TenantConfig>>();
+if (authTenants is not null)
 {
-    builder.Services.Configure<TenantConfig>(tenantSection.Key, tenantSection);
+    foreach (var tenant in authTenants)
+    {
+        builder.Services.Configure<Auth0TenantConfig>(tenant.TenantId, options =>
+        {
+            options.TenantId = tenant.TenantId;
+            options.TenantName = tenant.TenantName;
+            options.TenantDomain = tenant.TenantDomain;
+            options.Domain = tenant.Domain;
+            options.ClientId = tenant.ClientId;
+            options.ClientSecret = tenant.ClientSecret;
+            options.Audience = tenant.Audience;
+            options.RolesClaim = tenant.RolesClaim;
+        });
+    }
 }
+
+// Register Auth0 provider
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton<Auth0Provider>();
 
 // Configure Swagger/OpenAPI
 builder.Services.AddEndpointsApiExplorer();
@@ -40,10 +36,10 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Healthcheck — outside tenant resolution; no X-Tenant-ID header required
+// Healthcheck — outside tenant resolution
 app.Map("/health", HealthEndpoints.MapHealthBranch);
 
-// Tenant resolution middleware — must run before auth endpoints
+// Tenant resolution middleware
 app.UseMiddleware<TenantResolutionMiddleware>();
 
 // Redirect root to Swagger UI in Development
@@ -54,7 +50,7 @@ if (app.Environment.IsDevelopment())
     app.MapGet("/", () => Results.Redirect("/swagger"));
 }
 
-// Map unified authentication endpoints
+// Map authentication endpoints
 app.MapAuthEndpoints();
 
 app.Run();

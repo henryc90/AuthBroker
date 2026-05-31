@@ -4,6 +4,7 @@ namespace AuthBroker.Core.Models;
 /// Authentication request payload sent by the client.
 /// </summary>
 public record AuthRequest(
+    string Email,
     string Username,
     string Password,
     string TenantId

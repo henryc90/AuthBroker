@@ -14,24 +14,20 @@ namespace AuthBroker.Providers.Auth0;
 
 /// <summary>
 /// Implements <see cref="IAuthProvider"/> against Auth0's OIDC endpoints and auth API.
-/// Global connection settings (DefaultDomain) come from <see cref="Auth0Config"/>.
-/// Per-tenant settings (domain, clientId, clientSecret, audience) come from <see cref="TenantConfig.ProviderMetadata"/>.
+/// Each tenant is configured via <see cref="Auth0TenantConfig"/> from the <c>Auth</c> array.
 /// OIDC discovery documents are cached per domain.
 /// </summary>
 public class Auth0Provider : IAuthProvider
 {
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly Auth0Config _config;
-    private readonly IOptionsMonitor<TenantConfig> _tenantConfigMonitor;
+    private readonly IOptionsMonitor<Auth0TenantConfig> _tenantConfigMonitor;
     private readonly ConcurrentDictionary<string, OidcDiscovery> _discoveryCache = new();
 
     public Auth0Provider(
         IHttpClientFactory httpClientFactory,
-        IOptions<Auth0Config> config,
-        IOptionsMonitor<TenantConfig> tenantConfigMonitor)
+        IOptionsMonitor<Auth0TenantConfig> tenantConfigMonitor)
     {
         _httpClientFactory = httpClientFactory;
-        _config = config.Value;
         _tenantConfigMonitor = tenantConfigMonitor;
     }
 
@@ -44,11 +40,9 @@ public class Auth0Provider : IAuthProvider
         try
         {
             var tenant = GetTenant(request.TenantId);
-            var domain = GetTenantDomain(tenant);
-            var domainUrl = $"https://{domain}";
-            var (clientId, clientSecret) = GetClientCredentials(tenant);
+            var domainUrl = $"https://{tenant.Domain}";
 
-            if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(clientSecret))
+            if (string.IsNullOrEmpty(tenant.ClientId) || string.IsNullOrEmpty(tenant.ClientSecret))
                 return new AuthErrorResult<AuthResponse>(502, "Provider configuration incomplete: missing client credentials");
 
             var formData = new Dictionary<string, string>
@@ -56,16 +50,13 @@ public class Auth0Provider : IAuthProvider
                 ["grant_type"] = "password",
                 ["username"] = request.Username,
                 ["password"] = request.Password,
-                ["client_id"] = clientId,
-                ["client_secret"] = clientSecret,
+                ["client_id"] = tenant.ClientId,
+                ["client_secret"] = tenant.ClientSecret,
                 ["scope"] = "openid offline_access"
             };
 
-            // Add audience if configured for this tenant
-            if (tenant.ProviderMetadata.TryGetValue("audience", out var audience) && !string.IsNullOrEmpty(audience))
-            {
-                formData["audience"] = audience;
-            }
+            if (!string.IsNullOrEmpty(tenant.Audience))
+                formData["audience"] = tenant.Audience;
 
             var client = _httpClientFactory.CreateClient();
             var httpResponse = await client.PostAsync($"{domainUrl}/oauth/token", new FormUrlEncodedContent(formData));
@@ -96,38 +87,41 @@ public class Auth0Provider : IAuthProvider
     {
         try
         {
-            if (string.IsNullOrEmpty(_config.ClientId) || string.IsNullOrEmpty(_config.ClientSecret))
+            var tenant = GetTenant(request.TenantId);
+
+            if (string.IsNullOrEmpty(tenant.ClientId) || string.IsNullOrEmpty(tenant.ClientSecret))
                 return new AuthErrorResult<AuthResponse>(502, "Provider configuration incomplete: missing client credentials");
 
             var formData = new Dictionary<string, string>
             {
-                ["client_id"] = _config.ClientId,
-                ["email"] = request.Username,
+                ["client_id"] = tenant.ClientId,
+                ["email"] = request.Email,
+                ["username"] = request.Username,
                 ["password"] = request.Password,
-                ["connection"] = "Username-Password-Authentication"//TODO: make connection configurable per tenant if needed
+                ["connection"] = "Username-Password-Authentication"
             };
 
             var client = _httpClientFactory.CreateClient();
-            HttpContent content = new StringContent(JsonSerializer.Serialize(formData), Encoding.UTF8, "application/json");
-            var httpResponse = await client.PostAsync($"https://{_config.Domain}/dbconnections/signup", content);
-            //https://dev-2t325rkudymr1htg.us.auth0.com/dbconnections/signup
+            var content = new StringContent(JsonSerializer.Serialize(formData), Encoding.UTF8, "application/json");
+            var httpResponse = await client.PostAsync($"https://{tenant.Domain}/dbconnections/signup", content);
+
             if (httpResponse.StatusCode == HttpStatusCode.Unauthorized)
                 return new AuthErrorResult<AuthResponse>(401, "Invalid credentials");
+
             if (!httpResponse.IsSuccessStatusCode)
             {
-                string error = await httpResponse.Content.ReadAsStringAsync();
+                var error = await httpResponse.Content.ReadAsStringAsync();
                 throw new Exception(error);
             }
-            
+
             var auth0RegisterResponse = await httpResponse.Content.ReadFromJsonAsync<Auth0RegisterResponse>();
 
             if (auth0RegisterResponse is null)
                 return new AuthErrorResult<AuthResponse>(502, "Invalid response from provider");
 
-
-            return new AuthSuccessResult<AuthResponse>(new AuthResponse() { });
+            return new AuthSuccessResult<AuthResponse>(new AuthResponse());
         }
-        catch (HttpRequestException e)
+        catch (HttpRequestException)
         {
             return new AuthErrorResult<AuthResponse>(503, "Provider unavailable");
         }
@@ -135,8 +129,6 @@ public class Auth0Provider : IAuthProvider
         {
             return new AuthErrorResult<AuthResponse>(503, e.Message);
         }
-        throw new NotSupportedException(
-            "Auth0 registration requires the Management API and is not supported in this version.");
     }
 
     public async Task<IAuthResult<AuthResponse>> RefreshTokenAsync(string refreshToken, string tenantId)
@@ -144,19 +136,17 @@ public class Auth0Provider : IAuthProvider
         try
         {
             var tenant = GetTenant(tenantId);
-            var domain = GetTenantDomain(tenant);
-            var domainUrl = $"https://{domain}";
-            var (clientId, clientSecret) = GetClientCredentials(tenant);
+            var domainUrl = $"https://{tenant.Domain}";
 
-            if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(clientSecret))
+            if (string.IsNullOrEmpty(tenant.ClientId) || string.IsNullOrEmpty(tenant.ClientSecret))
                 return new AuthErrorResult<AuthResponse>(502, "Provider configuration incomplete: missing client credentials");
 
             var formData = new Dictionary<string, string>
             {
                 ["grant_type"] = "refresh_token",
                 ["refresh_token"] = refreshToken,
-                ["client_id"] = clientId,
-                ["client_secret"] = clientSecret
+                ["client_id"] = tenant.ClientId,
+                ["client_secret"] = tenant.ClientSecret
             };
 
             var client = _httpClientFactory.CreateClient();
@@ -175,8 +165,6 @@ public class Auth0Provider : IAuthProvider
                 return new AuthErrorResult<AuthResponse>(502, "Invalid response from provider");
 
             var authResponse = MapToAuthResponse(tokenResponse);
-
-            // Enrich the refreshed token with tenant claims
             EnrichResponse(authResponse, tenant);
 
             return new AuthSuccessResult<AuthResponse>(authResponse);
@@ -192,19 +180,17 @@ public class Auth0Provider : IAuthProvider
         try
         {
             var tenant = GetTenant(tenantId);
-            var domain = GetTenantDomain(tenant);
-            var domainUrl = $"https://{domain}";
-            var (clientId, clientSecret) = GetClientCredentials(tenant);
+            var domainUrl = $"https://{tenant.Domain}";
 
-            if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(clientSecret))
+            if (string.IsNullOrEmpty(tenant.ClientId) || string.IsNullOrEmpty(tenant.ClientSecret))
                 return new AuthErrorResult(502, "Provider configuration incomplete: missing client credentials");
 
             var client = _httpClientFactory.CreateClient();
             var formData = new Dictionary<string, string>
             {
                 ["token"] = refreshToken,
-                ["client_id"] = clientId,
-                ["client_secret"] = clientSecret
+                ["client_id"] = tenant.ClientId,
+                ["client_secret"] = tenant.ClientSecret
             };
 
             // Best-effort logout via token revocation — swallow failures
@@ -224,8 +210,7 @@ public class Auth0Provider : IAuthProvider
         try
         {
             var tenant = GetTenant(tenantId);
-            var domain = GetTenantDomain(tenant);
-            var domainUrl = $"https://{domain}";
+            var domainUrl = $"https://{tenant.Domain}";
 
             var discovery = await GetDiscoveryAsync(domainUrl);
             var client = _httpClientFactory.CreateClient();
@@ -285,8 +270,7 @@ public class Auth0Provider : IAuthProvider
         try
         {
             var tenant = GetTenant(tenantId);
-            var domain = GetTenantDomain(tenant);
-            var domainUrl = $"https://{domain}";
+            var domainUrl = $"https://{tenant.Domain}";
 
             var discovery = await GetDiscoveryAsync(domainUrl);
             var client = _httpClientFactory.CreateClient();
@@ -316,30 +300,10 @@ public class Auth0Provider : IAuthProvider
     //  Internal helpers
     // ---------------------------------------------------------------
 
-    private TenantConfig GetTenant(string tenantId)
+    private Auth0TenantConfig GetTenant(string tenantId)
     {
         return _tenantConfigMonitor.Get(tenantId)
             ?? throw new InvalidOperationException($"Tenant '{tenantId}' not found");
-    }
-
-    private static (string clientId, string clientSecret) GetClientCredentials(TenantConfig tenant)
-    {
-        var clientId = tenant.ProviderMetadata.GetValueOrDefault("clientId", "");
-        var clientSecret = tenant.ProviderMetadata.GetValueOrDefault("clientSecret", "");
-        return (clientId, clientSecret);
-    }
-
-    /// <summary>
-    /// Extracts the Auth0 domain from tenant metadata, falling back to the global default.
-    /// Returns just the domain name (e.g., "my-tenant.us.auth0.com") — without protocol.
-    /// </summary>
-    private string GetTenantDomain(TenantConfig tenant)
-    {
-        if (tenant.ProviderMetadata.TryGetValue("domain", out var domain) &&
-            !string.IsNullOrEmpty(domain))
-            return domain;
-            throw new InvalidOperationException(
-                "Auth0 domain not configured. Set 'domain' in tenant ProviderMetadata or configure DefaultDomain in Auth0Config.");
     }
 
     /// <summary>
@@ -369,7 +333,7 @@ public class Auth0Provider : IAuthProvider
     /// Injects tenant metadata (<c>tenant_id</c>, <c>tenant_name</c>, <c>tenant_domain</c>)
     /// into the <see cref="AuthResponse.EnrichedClaims"/> dictionary.
     /// </summary>
-    private static void EnrichResponse(AuthResponse response, TenantConfig tenant)
+    private static void EnrichResponse(AuthResponse response, Auth0TenantConfig tenant)
     {
         response.EnrichedClaims ??= new Dictionary<string, object>();
         response.EnrichedClaims["tenant_id"] = tenant.TenantId;
@@ -395,13 +359,12 @@ public class Auth0Provider : IAuthProvider
         };
     }
 
-
     /// <summary>
     /// Maps the userinfo <see cref="JsonElement"/> to a <see cref="UserProfile"/>.
     /// Auth0-specific: uses <c>sub</c>, <c>email</c>, <c>nickname</c>/<c>preferred_username</c>,
     /// and a configurable roles claim path (default: <c>https://schemas.auth0.com/roles</c>).
     /// </summary>
-    private static UserProfile MapToUserProfile(JsonElement userInfo, TenantConfig tenant)
+    private static UserProfile MapToUserProfile(JsonElement userInfo, Auth0TenantConfig tenant)
     {
         var profile = new UserProfile
         {
@@ -418,9 +381,9 @@ public class Auth0Provider : IAuthProvider
                 : string.Empty,
         };
 
-        // Extract roles from a configurable claim path (Auth0-specific)
-        var rolesClaim = tenant.ProviderMetadata.GetValueOrDefault(
-            "rolesClaim", "https://schemas.auth0.com/roles");
+        var rolesClaim = !string.IsNullOrEmpty(tenant.RolesClaim)
+            ? tenant.RolesClaim
+            : "https://schemas.auth0.com/roles";
 
         if (userInfo.TryGetProperty(rolesClaim, out var rolesElement) &&
             rolesElement.ValueKind == JsonValueKind.Array)
@@ -469,5 +432,4 @@ internal class Auth0RegisterResponse
 
     [JsonPropertyName("_id")]
     public string Id { get; set; } = string.Empty;
-
 }

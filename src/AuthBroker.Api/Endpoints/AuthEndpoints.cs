@@ -1,13 +1,14 @@
 using System.Text.Json.Serialization;
 using AuthBroker.Core;
 using AuthBroker.Core.Models;
+using AuthBroker.Providers.Auth0;
 
 namespace AuthBroker.Api.Endpoints;
 
 /// <summary>
 /// Maps the unified authentication endpoints to the <see cref="WebApplication"/> pipeline.
-/// All endpoints require <see cref="TenantResolutionMiddleware"/> to have run first,
-/// which stores the resolved <see cref="TenantConfig"/> in <c>HttpContext.Items["TenantConfig"]</c>.
+/// All endpoints require <see cref="Middleware.TenantResolutionMiddleware"/> to have run first,
+/// which stores the resolved <see cref="Auth0TenantConfig"/> in <c>HttpContext.Items["TenantConfig"]</c>.
 /// </summary>
 public static class AuthEndpoints
 {
@@ -23,45 +24,35 @@ public static class AuthEndpoints
     /// </summary>
     public static void MapAuthEndpoints(this WebApplication app)
     {
-        app.MapPost("/auth/login", async (HttpContext context, AuthRequest request, IProviderRegistry registry) =>
+        app.MapPost("/auth/login", async (HttpContext context, AuthRequest request, Auth0Provider provider) =>
         {
-            var tenantConfig = GetTenantConfig(context);
-            var provider = registry.Resolve(tenantConfig.ProviderType, context.RequestServices);
             var result = await provider.LoginAsync(request);
             return ToHttpResult(result);
         });
 
-        app.MapPost("/auth/register", async (HttpContext context, AuthRequest request, IProviderRegistry registry) =>
+        app.MapPost("/auth/register", async (HttpContext context, AuthRequest request, Auth0Provider provider) =>
         {
-            var tenantConfig = GetTenantConfig(context);
-            var provider = registry.Resolve(tenantConfig.ProviderType, context.RequestServices);
             var result = await provider.RegisterAsync(request);
             return ToHttpResult(result);
         });
 
-        app.MapPost("/auth/refresh", async (HttpContext context, RefreshTokenBody body, IProviderRegistry registry) =>
+        app.MapPost("/auth/refresh", async (HttpContext context, RefreshTokenBody body, Auth0Provider provider) =>
         {
             var tenantConfig = GetTenantConfig(context);
-            var provider = registry.Resolve(tenantConfig.ProviderType, context.RequestServices);
-
             var tenantId = body.TenantId ?? tenantConfig.TenantId;
             var result = await provider.RefreshTokenAsync(body.RefreshToken, tenantId);
-
             return ToHttpResult(result);
         });
 
-        app.MapPost("/auth/logout", async (HttpContext context, RefreshTokenBody body, IProviderRegistry registry) =>
+        app.MapPost("/auth/logout", async (HttpContext context, RefreshTokenBody body, Auth0Provider provider) =>
         {
             var tenantConfig = GetTenantConfig(context);
-            var provider = registry.Resolve(tenantConfig.ProviderType, context.RequestServices);
-
             var tenantId = body.TenantId ?? tenantConfig.TenantId;
             var result = await provider.LogoutAsync(body.RefreshToken, tenantId);
-
             return ToHttpResult(result);
         });
 
-        app.MapGet("/auth/userinfo", async (HttpContext context, IProviderRegistry registry) =>
+        app.MapGet("/auth/userinfo", async (HttpContext context, Auth0Provider provider) =>
         {
             var tenantConfig = GetTenantConfig(context);
 
@@ -75,18 +66,17 @@ public static class AuthEndpoints
             }
 
             var accessToken = authHeader["Bearer ".Length..].Trim();
-            var provider = registry.Resolve(tenantConfig.ProviderType, context.RequestServices);
             var result = await provider.GetUserProfileAsync(accessToken, tenantConfig.TenantId);
             return ToHttpResult(result);
         });
     }
 
     /// <summary>
-    /// Retrieves the <see cref="TenantConfig"/> stored by <see cref="TenantResolutionMiddleware"/>.
+    /// Retrieves the <see cref="Auth0TenantConfig"/> stored by <see cref="Middleware.TenantResolutionMiddleware"/>.
     /// </summary>
-    private static TenantConfig GetTenantConfig(HttpContext context)
+    private static Auth0TenantConfig GetTenantConfig(HttpContext context)
     {
-        return (TenantConfig)context.Items["TenantConfig"]!;
+        return (Auth0TenantConfig)context.Items["TenantConfig"]!;
     }
 
     /// <summary>

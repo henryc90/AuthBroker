@@ -22,7 +22,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Core\AuthBroker.Core.csproj" />
     <ProjectReference Include="..\Providers.Auth0\AuthBroker.Providers.Auth0.csproj" />
-    <ProjectReference Include="..\Providers.Keycloak\AuthBroker.Providers.Keycloak.csproj" />
   </ItemGroup>
 
 </Project>
