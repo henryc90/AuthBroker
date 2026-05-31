@@ -119,7 +119,11 @@ public class Auth0Provider : IAuthProvider
             if (auth0RegisterResponse is null)
                 return new AuthErrorResult<AuthResponse>(502, "Invalid response from provider");
 
-            return new AuthSuccessResult<AuthResponse>(new AuthResponse());
+            return new AuthSuccessResult<AuthResponse>(new AuthResponse
+            {
+                Id = auth0RegisterResponse.Id,
+                Email = auth0RegisterResponse.Email
+            });
         }
         catch (HttpRequestException)
         {
