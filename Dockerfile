@@ -14,7 +14,6 @@ WORKDIR /src
 COPY ["src/AuthBroker.Api/AuthBroker.Api.csproj", "src/AuthBroker.Api/"]
 COPY ["src/Core/AuthBroker.Core.csproj", "src/Core/"]
 COPY ["src/Providers.Auth0/AuthBroker.Providers.Auth0.csproj", "src/Providers.Auth0/"]
-COPY ["src/Providers.Keycloak/AuthBroker.Providers.Keycloak.csproj", "src/Providers.Keycloak/"]
 RUN dotnet restore "./src/AuthBroker.Api/AuthBroker.Api.csproj"
 COPY . .
 WORKDIR "/src/src/AuthBroker.Api"
