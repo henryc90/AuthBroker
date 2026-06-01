@@ -46,4 +46,9 @@ public interface IAuthProvider
     /// Retrieves the user profile for the authenticated user.
     /// </summary>
     Task<IAuthResult<UserProfile>> GetUserProfileAsync(string accessToken, string tenantId);
+
+    /// <summary>
+    /// Confirms a user's email address using the provider's verification mechanism.
+    /// </summary>
+    Task<IAuthResult> ConfirmEmailAsync(string id, string tenantId);
 }

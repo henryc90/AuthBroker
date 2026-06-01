@@ -300,6 +300,40 @@ public class Auth0Provider : IAuthProvider
         }
     }
 
+    public async Task<IAuthResult> ConfirmEmailAsync(string id, string tenantId)
+    {
+        try
+        {
+            var tenant = GetTenant(tenantId);
+            var domainUrl = $"https://{tenant.Domain}";
+
+            // 1. Get Management API token
+            var mgmtToken = await GetManagementApiTokenAsync(domainUrl, tenant.ClientId, tenant.ClientSecret);
+
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", mgmtToken);
+
+            // 2. Mark email as verified
+            var patchBody = new StringContent(
+                JsonSerializer.Serialize(new { email_verified = true }),
+                Encoding.UTF8,
+                "application/json");
+
+            var patchResponse = await client.PatchAsync(
+                $"{domainUrl}/api/v2/users/{id}", patchBody);
+
+            if (!patchResponse.IsSuccessStatusCode)
+                return new AuthErrorResult(502, "Failed to verify email");
+
+            return new AuthSuccessResult();
+        }
+        catch (HttpRequestException)
+        {
+            return new AuthErrorResult(503, "Provider unavailable");
+        }
+    }
+
     // ---------------------------------------------------------------
     //  Internal helpers
     // ---------------------------------------------------------------
@@ -331,6 +365,31 @@ public class Auth0Provider : IAuthProvider
 
         _discoveryCache[domainUrl] = discovery;
         return discovery;
+    }
+
+    /// <summary>
+    /// Obtains a Management API access token using client credentials grant.
+    /// </summary>
+    private async Task<string> GetManagementApiTokenAsync(string domainUrl, string clientId, string clientSecret)
+    {
+        var client = _httpClientFactory.CreateClient();
+        var formData = new Dictionary<string, string>
+        {
+            ["grant_type"] = "client_credentials",
+            ["client_id"] = clientId,
+            ["client_secret"] = clientSecret,
+            ["audience"] = $"{domainUrl}/api/v2/"
+        };
+
+        var response = await client.PostAsync(
+            $"{domainUrl}/oauth/token", new FormUrlEncodedContent(formData));
+
+        response.EnsureSuccessStatusCode();
+
+        var tokenResponse = await response.Content.ReadFromJsonAsync<ManagementApiTokenResponse>()
+            ?? throw new InvalidOperationException("Failed to get Management API token");
+
+        return tokenResponse.AccessToken;
     }
 
     /// <summary>
@@ -424,6 +483,12 @@ internal class Auth0TokenResponse
 
     [JsonPropertyName("token_type")]
     public string TokenType { get; set; } = "Bearer";
+}
+
+internal class ManagementApiTokenResponse
+{
+    [JsonPropertyName("access_token")]
+    public string AccessToken { get; set; } = string.Empty;
 }
 
 internal class Auth0RegisterResponse

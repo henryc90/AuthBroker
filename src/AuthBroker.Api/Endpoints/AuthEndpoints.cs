@@ -19,6 +19,7 @@ public static class AuthEndpoints
     ///   <item><c>POST /auth/register</c></item>
     ///   <item><c>POST /auth/refresh</c></item>
     ///   <item><c>POST /auth/logout</c></item>
+    ///   <item><c>GET /auth/verify-email</c></item>
     ///   <item><c>GET /auth/userinfo</c></item>
     /// </list>
     /// </summary>
@@ -33,6 +34,18 @@ public static class AuthEndpoints
         app.MapPost("/auth/register", async (HttpContext context, AuthRequest request, Auth0Provider provider) =>
         {
             var result = await provider.RegisterAsync(request);
+            return ToHttpResult(result);
+        });
+
+        app.MapGet("/auth/verify-email", async (HttpContext context, Auth0Provider provider) =>
+        {
+            var id = context.Request.Query["id"].FirstOrDefault();
+
+            if (string.IsNullOrEmpty(id))
+                return Results.Json(new { error = "Missing required parameter: id" }, statusCode: 400);
+
+            var tenantConfig = GetTenantConfig(context);
+            var result = await provider.ConfirmEmailAsync(id, tenantConfig.TenantId);
             return ToHttpResult(result);
         });
 
@@ -106,3 +119,5 @@ public static class AuthEndpoints
 public record RefreshTokenBody(
     [property: JsonPropertyName("refresh_token")] string RefreshToken,
     [property: JsonPropertyName("tenant_id")] string? TenantId = null);
+
+
