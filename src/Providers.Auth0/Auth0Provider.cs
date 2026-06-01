@@ -315,16 +315,17 @@ public class Auth0Provider : IAuthProvider
                 new AuthenticationHeaderValue("Bearer", mgmtToken);
 
             // 2. Mark email as verified
-            var patchBody = new StringContent(
-                JsonSerializer.Serialize(new { email_verified = true }),
-                Encoding.UTF8,
-                "application/json");
+            var patchBody = new StringContent( JsonSerializer.Serialize(new { email_verified = true }), Encoding.UTF8, "application/json");
+            
+            if (!id.ToLower().StartsWith("auth0|"))
+                id = $"auth0|{id}";
 
             var patchResponse = await client.PatchAsync(
                 $"{domainUrl}/api/v2/users/{id}", patchBody);
 
-            if (!patchResponse.IsSuccessStatusCode)
-                return new AuthErrorResult(502, "Failed to verify email");
+            if (!patchResponse.IsSuccessStatusCode) {
+                return new AuthErrorResult(502, await patchResponse.Content.ReadAsStringAsync());
+            }
 
             return new AuthSuccessResult();
         }
