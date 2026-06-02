@@ -63,9 +63,11 @@ public class Auth0Provider : IAuthProvider
 
             if (httpResponse.StatusCode == HttpStatusCode.Unauthorized)
                 return new AuthErrorResult<AuthResponse>(401, "Invalid credentials");
-
-            httpResponse.EnsureSuccessStatusCode();
-
+            if (!httpResponse.IsSuccessStatusCode)
+            {
+                return new AuthErrorResult<AuthResponse>((int)httpResponse.StatusCode, await httpResponse.Content.ReadAsStringAsync());
+                
+            }
             var tokenResponse = await httpResponse.Content
                 .ReadFromJsonAsync<Auth0TokenResponse>();
 
@@ -77,7 +79,7 @@ public class Auth0Provider : IAuthProvider
 
             return new AuthSuccessResult<AuthResponse>(authResponse);
         }
-        catch (HttpRequestException)
+        catch (Exception e)
         {
             return new AuthErrorResult<AuthResponse>(503, "Provider unavailable");
         }

@@ -26,8 +26,9 @@ if (authTenants is not null)
     }
 }
 
-// Register Auth0 provider
+// Register Auth0 provider and session token service
 builder.Services.AddHttpClient();
+builder.Services.AddSingleton<SessionTokenService>();
 builder.Services.AddSingleton<Auth0Provider>();
 
 // Configure Swagger/OpenAPI
@@ -41,6 +42,9 @@ app.Map("/health", HealthEndpoints.MapHealthBranch);
 
 // Tenant resolution middleware
 app.UseMiddleware<TenantResolutionMiddleware>();
+
+// Session token authentication middleware
+app.UseMiddleware<SessionTokenMiddleware>();
 
 // Redirect root to Swagger UI in Development
 if (app.Environment.IsDevelopment())
